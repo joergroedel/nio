@@ -132,8 +132,6 @@ void *client_thread(void *data)
        uint64_t i = 0;
        int fd;
 
-       printf("Started Client Thread %d\n", cfg->thread_num);
-
        fd = cfg->fd;
 
        while (!should_stop) {
@@ -160,8 +158,6 @@ void *client_thread(void *data)
 	       }
        }
 
-       printf("Stopping Client Thread %d\n", cfg->thread_num);
-
        return NULL;
 }
 
@@ -171,8 +167,6 @@ void *server_thread(void *data)
        struct timeval tv;
        fd_set rfds;
        int fd;
-
-       printf("Starting Server Thread %d\n", cfg->thread_num);
 
        fd = cfg->fd;
 
@@ -198,8 +192,6 @@ void *server_thread(void *data)
 		       }
 	       }
        }
-
-       printf("Stopping Server Thread %d\n", cfg->thread_num);
 
        return NULL;
 }
