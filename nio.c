@@ -6,10 +6,19 @@
 #include <string.h>
 #include <netdb.h>
 #include <stdio.h>
+#include <fcntl.h>
 
 #define DEFAULT_PORT	"7124"
 
 static int threads = 1;
+
+static void set_nonblocking(int fd)
+{
+	int prev;
+
+	if ((prev = fcntl(fd, F_GETFL, 0)) != -1)
+		fcntl(fd, F_SETFL, prev | O_NONBLOCK);
+}
 
 int create_socket(int af, const char *hostname, const char *service)
 {
@@ -44,6 +53,9 @@ int create_socket(int af, const char *hostname, const char *service)
 		close(fd);
 		fd = -1;
 	}
+
+	if (fd >= 0)
+		set_nonblocking(fd);
 
 	if (rp == NULL) {
 		fprintf(stderr, "Could not resolve host %s\n", hostname);
