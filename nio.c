@@ -509,7 +509,7 @@ void usage(const char *prg)
 {
 	printf("Usage: %s [-s] [-c server] [-p port] [-t threads] [-4] [-h]\n", prg);
 	printf("    -s            Server Mode - Wait for incoming packets\n");
-	printf("    -c server     Client Mode - Send packets to server\n");
+	printf("    -r server     Client Mode - Send packets to server\n");
 	printf("    -p port       UDP port to bind to\n");
 	printf("    -t threads    Number of thread to start for sending/receiving\n");
 	printf("    -4            Force use of IPv4\n");
