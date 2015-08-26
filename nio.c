@@ -47,7 +47,17 @@ int create_socket(int af, const char *hostname, const char *service)
 		return -1;
 	}
 
+	if (af == AF_UNSPEC) {
+		af = AF_INET;
+		for (rp = results; rp != NULL; rp = rp->ai_next)
+			if (rp->ai_family == AF_INET6)
+				af = AF_INET6;
+	}
+
 	for (rp = results; rp != NULL; rp = rp->ai_next) {
+		if (rp->ai_family != af)
+			continue;
+
 		fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 		if (fd == -1)
 			continue;
