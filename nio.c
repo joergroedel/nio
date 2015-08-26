@@ -15,6 +15,38 @@
 
 #define DEFAULT_PORT	"7124"
 
+#define CMD_START	1
+#define CMD_ACK		2
+#define CMD_STOP	3
+#define CMD_DATA	4
+
+struct nio_cmd {
+	uint32_t cmd;
+	uint32_t threads;
+	uint32_t seq_lo;
+	uint32_t seq_hi;
+	uint32_t recv_lo;
+	uint32_t recv_hi;
+} __attribute__((packed));
+
+enum states {
+	STATE_START,
+	STATE_START_SENT,
+	STATE_STARTED,
+	STATE_DYING,
+};
+
+struct thread_config {
+	pthread_t thread;
+	int running;
+	int fd;
+	int thread_num;
+	uint64_t last_seq;
+	uint64_t packets;
+};
+
+static struct thread_config *configs;
+
 static int port = 7124;
 static volatile int should_stop;
 static int threads = 1;
@@ -91,38 +123,6 @@ int create_socket(int af, const char *hostname, const char *service)
 
 	return fd;
 }
-
-#define CMD_START	1
-#define CMD_ACK		2
-#define CMD_STOP	3
-#define CMD_DATA	4
-
-struct nio_cmd {
-	uint32_t cmd;
-	uint32_t threads;
-	uint32_t seq_lo;
-	uint32_t seq_hi;
-	uint32_t recv_lo;
-	uint32_t recv_hi;
-} __attribute__((packed));
-
-enum states {
-	STATE_START,
-	STATE_START_SENT,
-	STATE_STARTED,
-	STATE_DYING,
-};
-
-struct thread_config {
-	pthread_t thread;
-	int running;
-	int fd;
-	int thread_num;
-	uint64_t last_seq;
-	uint64_t packets;
-};
-
-static struct thread_config *configs;
 
 void *client_thread(void *data)
 {
