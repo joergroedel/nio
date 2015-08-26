@@ -1,6 +1,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/types.h>
+#include <signal.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +11,14 @@
 
 #define DEFAULT_PORT	"7124"
 
+static int should_stop;
 static int threads = 1;
+
+static void sig_handler(int signum)
+{
+	fprintf(stderr, "Signal %d received - shutting down\n", signum);
+	should_stop = 1;
+}
 
 static void set_nonblocking(int fd)
 {
@@ -142,6 +150,13 @@ int main(int argc, char **argv)
 		usage(argv[0]);
 		exit(EXIT_FAILURE);
 	}
+
+	/* Setup signals */
+	signal(SIGTERM, sig_handler);
+	signal(SIGINT,  sig_handler);
+	signal(SIGALRM, sig_handler);
+	signal(SIGHUP,  sig_handler);
+	signal(SIGQUIT, sig_handler);
 
 	ctrl_fd = create_socket(domain, hostname, service);
 	if (ctrl_fd == -1)
