@@ -294,15 +294,12 @@ static void get_server_stats(struct nio_cmd *cmd)
 void ctrl_server(int fd)
 {
 	enum states state = STATE_START;
+	struct sockaddr_storage remote;
 	struct nio_cmd cmd, recv_cmd;
-	struct sockaddr remote;
 	fd_set rfds, wfds;
 	int cmd_write = 0;
 	socklen_t r_len;
 	struct timeval tv, last, now;
-
-	memset(&remote, 0, sizeof(remote));
-	r_len = 0;
 
 	while (state != STATE_DYING) {
 		int ret;
@@ -339,7 +336,7 @@ void ctrl_server(int fd)
 
 			if (state == STATE_START) {
 				sent = sendto(fd, &cmd, sizeof(cmd), 0,
-					      &remote, r_len);
+					      (struct sockaddr *)&remote, r_len);
 				if (sent != sizeof(cmd)) {
 					perror("sendto");
 					exit(EXIT_FAILURE);
@@ -353,7 +350,7 @@ void ctrl_server(int fd)
 			} else if (state == STATE_STARTED) {
 				get_server_stats(&cmd);
 				sent = sendto(fd, &cmd, sizeof(cmd), 0,
-					      &remote, r_len);
+					      (struct sockaddr *)&remote, r_len);
 				if (sent != sizeof(cmd)) {
 					perror("sendto");
 					exit(EXIT_FAILURE);
@@ -368,7 +365,7 @@ void ctrl_server(int fd)
 
 			r_len = sizeof(remote);
 			bytes = recvfrom(fd, &recv_cmd, sizeof(recv_cmd), 0,
-					 &remote, &r_len);
+					 (struct sockaddr *)&remote, &r_len);
 			if (bytes != sizeof(recv_cmd))
 				continue;
 
