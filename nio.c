@@ -2,6 +2,7 @@
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
@@ -261,18 +262,60 @@ int create_threads(int server)
 	return 0;
 }
 
+static uint64_t timediff(struct timeval *last, struct timeval *now)
+{
+       uint64_t val;
+
+       val = (now->tv_sec - last->tv_sec - 1) * 1000000;
+       val += (1000000 - last->tv_usec) + now->tv_usec;
+
+       return val;
+}
+
+static void get_server_stats(struct nio_cmd *cmd)
+{
+       uint64_t packets = 0;
+       uint64_t seq = 0;
+       int i;
+
+       memset(cmd, 0, sizeof(*cmd));
+
+       for (i = 0; i < threads; ++i) {
+               if (!configs[i].running)
+                       continue;
+
+               packets += configs[i].packets;
+               if (seq < configs[i].last_seq)
+                       seq = configs[i].last_seq;
+       }
+
+       cmd->cmd     = htonl(CMD_DATA);
+       cmd->seq_lo  = htonl(seq & 0xffffffffULL);
+       cmd->seq_hi  = htonl(seq >> 32);
+       cmd->recv_lo = htonl(packets & 0xffffffffULL);
+       cmd->recv_hi = htonl(packets >> 32);
+}
+
 void ctrl_server(int fd)
 {
 	enum states state = STATE_START;
 	struct nio_cmd cmd, recv_cmd;
 	struct sockaddr remote;
-	struct timeval tv;
 	fd_set rfds, wfds;
 	int cmd_write = 0;
 	socklen_t r_len;
+	struct timeval tv, last, now;
+
+	memset(&remote, 0, sizeof(remote));
+	r_len = 0;
 
 	while (state != STATE_DYING) {
 		int ret;
+
+		gettimeofday(&now, NULL);
+		if (state == STATE_STARTED &&
+		    timediff(&last, &now) >= 1000000)
+			cmd_write = 1;
 
 		tv.tv_sec  = 1;
 		tv.tv_usec = 0;
@@ -309,11 +352,20 @@ void ctrl_server(int fd)
 				cmd_write = 0;
 				state = STATE_STARTED;
 
+				gettimeofday(&last, NULL);
 				create_threads(1);
-
 				printf("Server started\n");
+			} else if (state == STATE_STARTED) {
+				get_server_stats(&cmd);
+				sent = sendto(fd, &cmd, sizeof(cmd), 0,
+					      &remote, r_len);
+				if (sent != sizeof(cmd)) {
+					perror("sendto");
+					exit(EXIT_FAILURE);
+				}
+				gettimeofday(&last, NULL);
+				cmd_write = 0;
 			}
-
 		}
 
 		if (FD_ISSET(fd, &rfds)) {
@@ -357,12 +409,16 @@ void ctrl_client(int fd)
 	struct timeval tv;
 	fd_set rfds, wfds;
 	int cmd_write = 0;
+	struct timeval last, now;
+	int got_data = 0;
+	uint64_t packets, last_packets = 0;
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.cmd     = htonl(CMD_START);
 	cmd.threads = htonl(threads);
 	cmd_write = 1;
 
+	gettimeofday(&last, NULL);
 	while (state != STATE_DYING) {
 		int ret;
 
@@ -432,6 +488,20 @@ void ctrl_client(int fd)
 			case CMD_DATA:
 				if (state != STATE_STARTED)
 					break;
+
+				gettimeofday(&now, NULL);
+				packets = ntohl(recv_cmd.recv_hi);
+				packets  = (packets << 32) | ntohl(recv_cmd.recv_lo);
+
+				if (got_data) {
+					uint64_t p = packets - last_packets;
+					printf("PPS: %ju\n", (p * 1000000) / timediff(&last, &now));
+				}
+
+				last_packets = packets;
+				last         = now;
+				got_data     = 1;
+
 				/* Handle data */
 				break;
 			default:
