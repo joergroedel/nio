@@ -201,6 +201,9 @@ void wait_for_threads(void)
 	void *ret;
 	int i;
 
+	if (!configs)
+		return;
+
 	for (i = 0; i < threads; ++i) {
 		if (configs[i].running)
 			pthread_join(configs[i].thread, &ret);
