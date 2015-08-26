@@ -2,6 +2,7 @@
 #include <netinet/in.h>
 #include <sys/select.h>
 #include <sys/types.h>
+#include <pthread.h>
 #include <signal.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -13,8 +14,11 @@
 
 #define DEFAULT_PORT	"7124"
 
+static int port = 7124;
 static volatile int should_stop;
 static int threads = 1;
+static int domain = AF_UNSPEC;
+static const char *hostname = NULL;
 
 static void sig_handler(int signum)
 {
@@ -108,6 +112,155 @@ enum states {
 	STATE_DYING,
 };
 
+struct thread_config {
+	pthread_t thread;
+	int running;
+	int fd;
+	int thread_num;
+	uint64_t last_seq;
+	uint64_t packets;
+};
+
+static struct thread_config *configs;
+
+void *client_thread(void *data)
+{
+       struct thread_config *cfg = data;
+       struct timeval tv;
+       fd_set wfds;
+       uint64_t i = 0;
+       int fd;
+
+       printf("Started Client Thread %d\n", cfg->thread_num);
+
+       fd = cfg->fd;
+
+       while (!should_stop) {
+	       int ret;
+
+	       tv.tv_sec  = 1;
+	       tv.tv_usec = 0;
+
+	       FD_ZERO(&wfds);
+	       FD_SET(fd, &wfds);
+
+	       ret = select(fd + 1, NULL, &wfds, NULL, &tv);
+
+	       if (ret == 1 && FD_ISSET(fd, &wfds)) {
+		       uint64_t seq = (i * threads) + cfg->thread_num;
+		       ssize_t sent;
+
+		       sent = send(fd, &seq, sizeof(seq), 0);
+		       if (sent == sizeof(seq)) {
+			       i += 1;
+			       cfg->last_seq  = seq;
+			       cfg->packets  += 1;
+		       }
+	       }
+       }
+
+       printf("Stopping Client Thread %d\n", cfg->thread_num);
+
+       return NULL;
+}
+
+void *server_thread(void *data)
+{
+       struct thread_config *cfg = data;
+       struct timeval tv;
+       fd_set rfds;
+       int fd;
+
+       printf("Starting Server Thread %d\n", cfg->thread_num);
+
+       fd = cfg->fd;
+
+       while (!should_stop) {
+	       int ret;
+
+	       tv.tv_sec  = 1;
+	       tv.tv_usec = 0;
+
+	       FD_ZERO(&rfds);
+	       FD_SET(fd, &rfds);
+
+	       ret = select(fd + 1, &rfds, NULL, NULL, &tv);
+
+	       if (ret == 1 && FD_ISSET(fd, &rfds)) {
+		       uint64_t seq;
+		       ssize_t bytes;
+
+		       bytes = recv(fd, &seq, sizeof(seq), 0);
+		       if (bytes == sizeof(seq)) {
+			       cfg->last_seq  = seq;
+			       cfg->packets  += 1;
+		       }
+	       }
+       }
+
+       printf("Stopping Server Thread %d\n", cfg->thread_num);
+
+       return NULL;
+}
+
+void wait_for_threads(void)
+{
+	void *ret;
+	int i;
+
+	for (i = 0; i < threads; ++i) {
+		if (configs[i].running)
+			pthread_join(configs[i].thread, &ret);
+		configs[i].running = 0;
+		close(configs[i].fd);
+	}
+
+	threads = 0;
+}
+
+int create_threads(int server)
+{
+	int i;
+
+	configs = malloc(sizeof(struct thread_config) * threads);
+	if (configs == NULL) {
+		perror("malloc");
+		exit(EXIT_FAILURE);
+	}
+
+	memset(configs, 0, sizeof(struct thread_config) * threads);
+
+	for (i = 0; i < threads; ++i) {
+		char srv[16];
+		int ret;
+
+		snprintf(srv, 16, "%d", port + 1 + i);
+		configs[i].fd = create_socket(domain, hostname, srv);
+		if (configs[i].fd == -1) {
+			printf("Failed to create socket\n");
+			return -1;
+		}
+
+		configs[i].thread_num = i;
+
+		if (server)
+			ret = pthread_create(&configs[i].thread, NULL,
+					server_thread, configs + i);
+		else
+			ret = pthread_create(&configs[i].thread, NULL,
+					client_thread, configs + i);
+
+		if (ret) {
+			perror("pthread_create");
+			return -1;
+		}
+
+		configs[i].running = 1;
+	}
+
+	return 0;
+}
+
 void ctrl_server(int fd)
 {
 	enum states state = STATE_START;
@@ -156,6 +309,8 @@ void ctrl_server(int fd)
 				cmd_write = 0;
 				state = STATE_STARTED;
 
+				create_threads(1);
+
 				printf("Server started\n");
 			}
 
@@ -175,12 +330,17 @@ void ctrl_server(int fd)
 				if (state != STATE_START)
 					break;
 
+				threads = ntohl(recv_cmd.threads);
+
+
 				memset(&cmd, 0, sizeof(cmd));
 				cmd.cmd   = htonl(CMD_ACK);
 				cmd_write = 1;
 
 				break;
 			case CMD_STOP:
+				should_stop = 1;
+				wait_for_threads();
 				state = STATE_DYING;
 				break;
 			default:
@@ -264,6 +424,7 @@ void ctrl_client(int fd)
 			switch (cmd) {
 			case CMD_ACK:
 				if (state == STATE_START_SENT) {
+					create_threads(0);
 					printf("Client started\n");
 					state = STATE_STARTED;
 				}
@@ -278,6 +439,8 @@ void ctrl_client(int fd)
 			}
 		}
 	}
+
+	wait_for_threads();
 }
 
 void usage(const char *prg)
@@ -296,8 +459,6 @@ int main(int argc, char **argv)
 {
 	const char *service = DEFAULT_PORT;
 	int port = atoi(DEFAULT_PORT);
-	const char *hostname = NULL;
-	int domain = AF_UNSPEC;
 	int server = 0;
 	int ctrl_fd;
 	int opt;
