@@ -47,6 +47,11 @@ int create_socket(int af, const char *hostname, const char *service)
 		return -1;
 	}
 
+	if (results == NULL) {
+		fprintf(stderr, "Could not resolve host %s\n", hostname);
+		return -1;
+	}
+
 	if (af == AF_UNSPEC) {
 		af = AF_INET;
 		for (rp = results; rp != NULL; rp = rp->ai_next)
@@ -76,11 +81,6 @@ int create_socket(int af, const char *hostname, const char *service)
 
 	if (fd >= 0)
 		set_nonblocking(fd);
-
-	if (rp == NULL) {
-		fprintf(stderr, "Could not resolve host %s\n", hostname);
-		return -1;
-	}
 
 	freeaddrinfo(results);
 
