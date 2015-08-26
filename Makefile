@@ -1,6 +1,6 @@
 CC=gcc
-CFLAGS=-g -Wall -O3
-LDFLAGS=-lpthread
+CFLAGS=-pthread -g -Wall -O3
+LDFLAGS=-pthread
 
 all: nio
 nio: nio.o
