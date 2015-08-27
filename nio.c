@@ -154,12 +154,17 @@ void *client_thread(void *data)
 	       if (polling || FD_ISSET(fd, &wfds)) {
 		       uint64_t seq = (i * threads) + cfg->thread_num;
 		       ssize_t sent;
+		       int i;
 
-		       sent = send(fd, &seq, sizeof(seq), 0);
-		       if (sent == sizeof(seq)) {
-			       i += 1;
-			       cfg->last_seq  = seq;
-			       cfg->packets  += 1;
+		       for (i = 0; i < 16384; ++i) {
+			       sent = send(fd, &seq, sizeof(seq), 0);
+			       if (sent < 0)
+				       break;
+			       if (sent == sizeof(seq)) {
+				       i += 1;
+				       cfg->last_seq  = seq;
+				       cfg->packets  += 1;
+			       }
 		       }
 	       }
        }
@@ -194,11 +199,16 @@ void *server_thread(void *data)
 	       if (polling || FD_ISSET(fd, &rfds)) {
 		       uint64_t seq;
 		       ssize_t bytes;
+		       int i;
 
-		       bytes = recv(fd, &seq, sizeof(seq), 0);
-		       if (bytes == sizeof(seq)) {
-			       cfg->last_seq  = seq;
-			       cfg->packets  += 1;
+		       for (i = 0; i < 16384; ++i) {
+			       bytes = recv(fd, &seq, sizeof(seq), 0);
+			       if (bytes < 0)
+				       break;
+			       if (bytes == sizeof(seq)) {
+				       cfg->last_seq  = seq;
+				       cfg->packets  += 1;
+			       }
 		       }
 	       }
        }
