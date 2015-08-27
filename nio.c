@@ -287,28 +287,45 @@ static uint64_t timediff(struct timeval *last, struct timeval *now)
        return val;
 }
 
+struct packet_stats {
+	uint64_t packets;
+	uint64_t seq;
+};
+
+static void fetch_stats(struct packet_stats *stats)
+{
+	int i;
+
+	memset(stats, 0, sizeof(*stats));
+
+	if (configs == NULL)
+		return;
+
+	for (i = 0; i < threads; ++i) {
+		if (!configs[i].running)
+			continue;
+
+		stats->packets += configs[i].packets;
+		if (stats->seq < configs[i].last_seq)
+			stats->seq = configs[i].last_seq;
+	}
+
+	return;
+}
+
 static void get_server_stats(struct nio_cmd *cmd)
 {
-       uint64_t packets = 0;
-       uint64_t seq = 0;
-       int i;
+       struct packet_stats stats;
 
        memset(cmd, 0, sizeof(*cmd));
 
-       for (i = 0; i < threads; ++i) {
-               if (!configs[i].running)
-                       continue;
-
-               packets += configs[i].packets;
-               if (seq < configs[i].last_seq)
-                       seq = configs[i].last_seq;
-       }
+       fetch_stats(&stats);
 
        cmd->cmd     = htonl(CMD_DATA);
-       cmd->seq_lo  = htonl(seq & 0xffffffffULL);
-       cmd->seq_hi  = htonl(seq >> 32);
-       cmd->recv_lo = htonl(packets & 0xffffffffULL);
-       cmd->recv_hi = htonl(packets >> 32);
+       cmd->seq_lo  = htonl(stats.seq & 0xffffffffULL);
+       cmd->seq_hi  = htonl(stats.seq >> 32);
+       cmd->recv_lo = htonl(stats.packets & 0xffffffffULL);
+       cmd->recv_hi = htonl(stats.packets >> 32);
 }
 
 void ctrl_server(int fd)
