@@ -577,7 +577,7 @@ int main(int argc, char **argv)
 
 	/* Parse options */
 	while (1) {
-		opt = getopt(argc, argv, "sr:p:t:h46l");
+		opt = getopt(argc, argv, "sr:p:t:n:h46l");
 		if (opt == EOF)
 			break;
 
@@ -595,7 +595,7 @@ int main(int argc, char **argv)
 		case 'n':
 			threads = atoi(optarg);
 			break;
-		case 'd':
+		case 't':
 			timeout = atoi(optarg);
 			break;
 		case '4':
