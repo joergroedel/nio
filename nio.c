@@ -47,6 +47,7 @@ struct thread_config {
 
 static struct thread_config *configs;
 
+static int timeout;
 static int polling;
 static int port = 7124;
 static volatile int should_stop;
@@ -512,6 +513,8 @@ void ctrl_client(int fd)
 				if (state == STATE_START_SENT) {
 					create_threads(0);
 					printf("Client started\n");
+					if (timeout > 0)
+						alarm(timeout);
 					state = STATE_STARTED;
 				}
 				break;
@@ -552,12 +555,13 @@ void ctrl_client(int fd)
 
 void usage(const char *prg)
 {
-	printf("Usage: %s [-s] [-c server] [-p port] [-t threads] [-4] [-h]\n", prg);
+	printf("Usage: %s [-s] [-c server] [-p port] [-n threads] [-4] [-h]\n", prg);
 	printf("    -s            Server Mode - Wait for incoming packets\n");
 	printf("    -r server     Client Mode - Send packets to server\n");
 	printf("    -p port       UDP port to bind to\n");
-	printf("    -t threads    Number of thread to start for sending/receiving\n");
+	printf("    -n threads    Number of thread to start for sending/receiving\n");
 	printf("    -l            Polling mode - Do not use select() in worker threads\n");
+	printf("    -t timeout    Timeout in seconds after client should stop and exit\n");
 	printf("    -4            Force use of IPv4\n");
 	printf("    -6            Force use of IPv6\n");
 	printf("    -h            Print this help message and exit\n");
@@ -588,8 +592,11 @@ int main(int argc, char **argv)
 			service = optarg;
 			port = atoi(service);
 			break;
-		case 't':
+		case 'n':
 			threads = atoi(optarg);
+			break;
+		case 'd':
+			timeout = atoi(optarg);
 			break;
 		case '4':
 			domain = AF_INET;
