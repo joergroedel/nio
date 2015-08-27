@@ -433,14 +433,15 @@ void ctrl_server(int fd)
 
 void ctrl_client(int fd)
 {
+	uint64_t sent_packets, last_sent_packets = 0;
+	uint64_t packets, last_packets = 0;
 	enum states state = STATE_START;
 	struct nio_cmd cmd, recv_cmd;
-	struct timeval tv;
+	struct timeval tv, last, now;
+	struct packet_stats stats;
 	fd_set rfds, wfds;
 	int cmd_write = 0;
-	struct timeval last, now;
 	int got_data = 0;
-	uint64_t packets, last_packets = 0;
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.cmd     = htonl(CMD_START);
@@ -522,16 +523,23 @@ void ctrl_client(int fd)
 				packets = ntohl(recv_cmd.recv_hi);
 				packets  = (packets << 32) | ntohl(recv_cmd.recv_lo);
 
+				fetch_stats(&stats);
+				sent_packets = stats.packets;
+
 				if (got_data) {
 					uint64_t p = packets - last_packets;
-					printf("PPS: %ju\n", (p * 1000000) / timediff(&last, &now));
+					uint64_t s = sent_packets - last_sent_packets;
+
+					printf("PPS: %ju Sent: %ju\n",
+						(p * 1000000) / timediff(&last, &now),
+						(s * 1000000) / timediff(&last, &now));
 				}
 
-				last_packets = packets;
-				last         = now;
-				got_data     = 1;
+				last_sent_packets = sent_packets;
+				last_packets      = packets;
+				last              = now;
+				got_data          = 1;
 
-				/* Handle data */
 				break;
 			default:
 				break;
