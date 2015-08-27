@@ -47,6 +47,7 @@ struct thread_config {
 
 static struct thread_config *configs;
 
+static int polling;
 static int port = 7124;
 static volatile int should_stop;
 static int threads = 1;
@@ -137,15 +138,20 @@ void *client_thread(void *data)
        while (!should_stop) {
 	       int ret;
 
-	       tv.tv_sec  = 1;
-	       tv.tv_usec = 0;
+	       if (!polling) {
+		       tv.tv_sec  = 1;
+		       tv.tv_usec = 0;
 
-	       FD_ZERO(&wfds);
-	       FD_SET(fd, &wfds);
+		       FD_ZERO(&wfds);
+		       FD_SET(fd, &wfds);
 
-	       ret = select(fd + 1, NULL, &wfds, NULL, &tv);
+		       ret = select(fd + 1, NULL, &wfds, NULL, &tv);
 
-	       if (ret == 1 && FD_ISSET(fd, &wfds)) {
+		       if (ret != 1)
+			       continue;
+	       }
+
+	       if (polling || FD_ISSET(fd, &wfds)) {
 		       uint64_t seq = (i * threads) + cfg->thread_num;
 		       ssize_t sent;
 
@@ -173,15 +179,19 @@ void *server_thread(void *data)
        while (!should_stop) {
 	       int ret;
 
-	       tv.tv_sec  = 1;
-	       tv.tv_usec = 0;
+	       if (!polling) {
+		       tv.tv_sec  = 1;
+		       tv.tv_usec = 0;
 
-	       FD_ZERO(&rfds);
-	       FD_SET(fd, &rfds);
+		       FD_ZERO(&rfds);
+		       FD_SET(fd, &rfds);
 
-	       ret = select(fd + 1, &rfds, NULL, NULL, &tv);
+		       ret = select(fd + 1, &rfds, NULL, NULL, &tv);
+		       if (ret != 1)
+			       continue;
+	       }
 
-	       if (ret == 1 && FD_ISSET(fd, &rfds)) {
+	       if (polling || FD_ISSET(fd, &rfds)) {
 		       uint64_t seq;
 		       ssize_t bytes;
 
@@ -512,6 +522,7 @@ void usage(const char *prg)
 	printf("    -r server     Client Mode - Send packets to server\n");
 	printf("    -p port       UDP port to bind to\n");
 	printf("    -t threads    Number of thread to start for sending/receiving\n");
+	printf("    -l            Polling mode - Do not use select() in worker threads\n");
 	printf("    -4            Force use of IPv4\n");
 	printf("    -6            Force use of IPv6\n");
 	printf("    -h            Print this help message and exit\n");
@@ -527,7 +538,7 @@ int main(int argc, char **argv)
 
 	/* Parse options */
 	while (1) {
-		opt = getopt(argc, argv, "sr:p:t:h46");
+		opt = getopt(argc, argv, "sr:p:t:h46l");
 		if (opt == EOF)
 			break;
 
@@ -550,6 +561,9 @@ int main(int argc, char **argv)
 			break;
 		case '6':
 			domain = AF_INET6;
+			break;
+		case 'l':
+			polling = 1;
 			break;
 		default:
 			fprintf(stderr, "ERROR: Unknown option: %c\n", opt);
