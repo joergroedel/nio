@@ -265,8 +265,6 @@ void wait_for_threads(void)
 		configs[i].running = 0;
 		close(configs[i].fd);
 	}
-
-	threads = 0;
 }
 
 int create_threads(int server)
@@ -328,7 +326,7 @@ struct packet_stats {
 	uint64_t seq;
 };
 
-static void fetch_stats(struct packet_stats *stats)
+static void fetch_stats(struct packet_stats *stats, int only_running)
 {
 	int i;
 
@@ -338,7 +336,7 @@ static void fetch_stats(struct packet_stats *stats)
 		return;
 
 	for (i = 0; i < threads; ++i) {
-		if (!configs[i].running)
+		if (only_running && !configs[i].running)
 			continue;
 
 		stats->packets += configs[i].packets;
@@ -355,7 +353,7 @@ static void get_server_stats(struct nio_cmd *cmd)
 
        memset(cmd, 0, sizeof(*cmd));
 
-       fetch_stats(&stats);
+       fetch_stats(&stats, 1);
 
        cmd->cmd     = htonl(CMD_DATA);
        cmd->seq_lo  = htonl(stats.seq & 0xffffffffULL);
@@ -474,7 +472,9 @@ void ctrl_client(int fd)
 	enum states state = STATE_START;
 	struct nio_cmd cmd, recv_cmd;
 	struct timeval tv, last, now;
+	struct timeval start, end;
 	struct packet_stats stats;
+	uint64_t run_time;
 	fd_set rfds, wfds;
 	int cmd_write = 0;
 	int got_data = 0;
@@ -485,6 +485,7 @@ void ctrl_client(int fd)
 	cmd_write = 1;
 
 	gettimeofday(&last, NULL);
+	start = last;
 	while (state != STATE_DYING) {
 		int ret;
 
@@ -561,7 +562,7 @@ void ctrl_client(int fd)
 				packets = ntohl(recv_cmd.recv_hi);
 				packets  = (packets << 32) | ntohl(recv_cmd.recv_lo);
 
-				fetch_stats(&stats);
+				fetch_stats(&stats, 1);
 				sent_packets = stats.packets;
 
 				if (got_data) {
@@ -586,6 +587,18 @@ void ctrl_client(int fd)
 	}
 
 	wait_for_threads();
+
+	gettimeofday(&end, NULL);
+	fetch_stats(&stats, 0);
+
+	run_time = timediff(&start, &end);
+
+	printf("Ran for %ju.%07ju seconds with %d threads\n",
+			run_time / 1000000, run_time % 1000000, threads);
+
+	printf("Average PPS received: %ju Average PPS Sent: %ju\n",
+			(stats.packets * 1000000) / run_time,
+			(last_packets  * 1000000) / run_time);
 }
 
 void usage(const char *prg)
