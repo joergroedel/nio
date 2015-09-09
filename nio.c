@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/select.h>
@@ -11,8 +13,10 @@
 #include <netdb.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <sched.h>
 #include <errno.h>
 
+#define MAX_CPUS	128
 #define DEFAULT_PORT	"7124"
 
 #define CMD_START	1
@@ -41,6 +45,7 @@ struct thread_config {
 	int running;
 	int fd;
 	int thread_num;
+	int cpu;
 	uint64_t last_seq;
 	uint64_t packets;
 };
@@ -54,6 +59,7 @@ static volatile int should_stop;
 static int threads = 1;
 static int domain = AF_UNSPEC;
 static const char *hostname = NULL;
+static int pinning;
 
 static void sig_handler(int signum)
 {
@@ -126,6 +132,28 @@ int create_socket(int af, const char *hostname, const char *service)
 	return fd;
 }
 
+static void bind_to_cpu(int cpu)
+{
+	cpu_set_t *cpuset;
+	size_t size;
+
+	cpuset = CPU_ALLOC(MAX_CPUS);
+	if (cpuset == NULL) {
+		perror("CPU_ALLOC");
+		exit(EXIT_FAILURE);
+	}
+
+	size = CPU_ALLOC_SIZE(MAX_CPUS);
+	CPU_ZERO_S(size, cpuset);
+
+	CPU_SET_S(cpu, size, cpuset);
+
+	if (sched_setaffinity(0, size, cpuset))
+		perror("sched_setaffinity");
+
+	CPU_FREE(cpuset);
+}
+
 void *client_thread(void *data)
 {
        struct thread_config *cfg = data;
@@ -135,6 +163,9 @@ void *client_thread(void *data)
        int fd;
 
        fd = cfg->fd;
+
+       if (cfg->cpu >= 0)
+	       bind_to_cpu(cfg->cpu);
 
        while (!should_stop) {
 	       int ret;
@@ -181,6 +212,9 @@ void *server_thread(void *data)
        int fd;
 
        fd = cfg->fd;
+
+       if (cfg->cpu >= 0)
+	       bind_to_cpu(cfg->cpu);
 
        while (!should_stop) {
 	       int ret;
@@ -259,6 +293,7 @@ int create_threads(int server)
 		}
 
 		configs[i].thread_num = i;
+		configs[i].cpu = pinning ? i : -1;
 
 		if (server)
 			ret = pthread_create(&configs[i].thread, NULL,
@@ -555,13 +590,14 @@ void ctrl_client(int fd)
 
 void usage(const char *prg)
 {
-	printf("Usage: %s [-s] [-c server] [-p port] [-n threads] [-4] [-h]\n", prg);
+	printf("Usage: %s [-s] [-c server] [-p port] [-n threads] [-4] [-b] [-h]\n", prg);
 	printf("    -s            Server Mode - Wait for incoming packets\n");
 	printf("    -r server     Client Mode - Send packets to server\n");
 	printf("    -p port       UDP port to bind to\n");
 	printf("    -n threads    Number of thread to start for sending/receiving\n");
 	printf("    -l            Polling mode - Do not use select() in worker threads\n");
 	printf("    -t timeout    Timeout in seconds after client should stop and exit\n");
+	printf("    -b            Bind worker threads to single CPUs\n");
 	printf("    -4            Force use of IPv4\n");
 	printf("    -6            Force use of IPv6\n");
 	printf("    -h            Print this help message and exit\n");
@@ -577,7 +613,7 @@ int main(int argc, char **argv)
 
 	/* Parse options */
 	while (1) {
-		opt = getopt(argc, argv, "sr:p:t:n:h46l");
+		opt = getopt(argc, argv, "sr:p:t:n:h46lb");
 		if (opt == EOF)
 			break;
 
@@ -597,6 +633,9 @@ int main(int argc, char **argv)
 			break;
 		case 't':
 			timeout = atoi(optarg);
+			break;
+		case 'b':
+			pinning = 1;
 			break;
 		case '4':
 			domain = AF_INET;
