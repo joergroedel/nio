@@ -597,8 +597,8 @@ void ctrl_client(int fd)
 			run_time / 1000000, run_time % 1000000, threads);
 
 	printf("Average PPS received: %ju Average PPS Sent: %ju\n",
-			(stats.packets * 1000000) / run_time,
-			(last_packets  * 1000000) / run_time);
+			(last_packets   * 1000000) / run_time,
+			(stats.packets  * 1000000) / run_time);
 }
 
 void usage(const char *prg)
